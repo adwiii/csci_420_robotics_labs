@@ -41,9 +41,13 @@ class Perception(Node):
         share_directory = get_package_share_directory('perception')
         model_path = os.path.join(share_directory, 'model.pkl')
         self.model = None
-        if os.path.exists(model_path):
+        # The file that is included with the lab is a 0 byte placeholder for what you will build in Checkpoint 4
+        if os.path.exists(model_path) and os.path.getsize(model_path) > 0:
             with open(model_path, 'rb') as f:
                 self.model = pickle.load(f)
+            self.get_logger().info(f'model.pkl successfully loaded')
+        else:
+            self.get_logger().info(f'model.pkl not found, not loading classifier (TODO Checkpoint 4)')
 
         # TODO Checkpoints 3 & 4
         # Create the publishers and subscriber
