@@ -6,6 +6,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import Vector3, PoseStamped, Point
+from std_msgs.msg import Bool
 
 # A class to keep track of the quadrotors state
 class DroneState(Enum):
@@ -22,6 +23,7 @@ class GeofenceAndMission(Node):
         super().__init__('GeofenceAndMission')
         # Create the publisher and subscriber
         self.position_pub = self.create_publisher(Vector3, '/uav/input/position', 1)
+        self.at_goal_pub = self.create_publisher(Bool, '/uav/sensors/at_waypoint', 1)
         self.keyboard_sub = self.create_subscription(Vector3, '/uav/input/position_request',self.getPositionRequest, 1)
 
         self.gps_sub = self.create_subscription(PoseStamped, '/uav/sensors/gps', self.get_gps, 1)
@@ -101,12 +103,12 @@ class GeofenceAndMission(Node):
         x_check = self.geofence_x[0] <= self.unverified_goal_cmd.x <= self.geofence_x[1]
         y_check = self.geofence_y[0] <= self.unverified_goal_cmd.y <= self.geofence_y[1]
         z_check = self.geofence_z[0] <= self.unverified_goal_cmd.z <= self.geofence_z[1]
-    
+
         if not self.geofence_on:
             self.state = DroneState.MOVING
             self.goal_cmd = self.unverified_goal_cmd
             return
-    
+
         # If it is change state to moving
         if x_check and y_check and z_check:
             self.state = DroneState.MOVING
@@ -136,6 +138,9 @@ class GeofenceAndMission(Node):
         # If goal is reached transition to hovering
         if distance_to_goal < self.acceptance_range:
             self.state = DroneState.HOVERING
+            bool = Bool()
+            bool.data = True
+            self.at_goal_pub.publish(bool)
 
     # The main loop of the function
     def mainloop(self):
@@ -151,6 +156,13 @@ class GeofenceAndMission(Node):
         elif self.state == DroneState.VERIFYING:
             self.processVerifying()
 
+        # Euclidean distance
+        dx = self.goal_cmd.x - self.drone_position.x
+        dy = self.goal_cmd.y - self.drone_position.y
+        distance_to_goal = np.sqrt(np.power(dx, 2) + np.power(dy, 2))
+        bool = Bool()
+        bool.data = True if (distance_to_goal < self.acceptance_range) else False
+        self.at_goal_pub.publish(bool)
 def main():
     rclpy.init()
     try:

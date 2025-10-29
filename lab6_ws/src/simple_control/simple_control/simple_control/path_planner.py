@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import rospy
 import copy
 import numpy as np
 from astar_class import AStarPlanner
@@ -16,6 +15,9 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 class PathPlanner(Node):
     # On node initialization
     def __init__(self):
+        super().__init__('path_planner')
+        self.origin_x = None
+        self.origin_y = None
         # Create the publisher and subscriber
         self.position_pub = self.create_publisher(Vector3, '/uav/input/position_request', 1)
         self.path_pub = self.create_publisher(Int32MultiArray, '/uav/path', 1)
@@ -26,7 +28,7 @@ class PathPlanner(Node):
         )
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.get_map, qos)
         self.requested_position = self.create_subscription(Vector3, '/uav/input/goal', self.get_goal, 10)
-        self.at_waypoint_sub = self.create_subscription('uav/sensors/at_waypoint', Bool, self.at_waypoint, 10)
+        self.at_waypoint_sub = self.create_subscription(Bool, '/uav/sensors/at_waypoint', self.at_waypoint, 10)
 
         # Initialize class variables
         self.width = -1
@@ -36,6 +38,15 @@ class PathPlanner(Node):
         self.have_plan = False
         self.map = []
         self.at_waypoint = False
+
+        # Checks if the plan has been started
+        self.have_plan = False
+        self.sent_position = False
+
+        # Create the path publish message
+        self.p_path = Int32MultiArray()
+        self.path = None
+
 
         # Set the timer to call the mainloop of our class
         self.rate = 5
@@ -67,6 +78,8 @@ class PathPlanner(Node):
 
     # Goal callback
     def get_goal(self, msg):
+        if self.origin_x is None or self.origin_y is None:  # map has not been set up yt
+            return
 
         if len(self.goal_position) == 0:
             # Get the goal position
@@ -81,17 +94,6 @@ class PathPlanner(Node):
 
     def mainloop(self):
         # Set the rate of this loop
-
-        # Checks if the plan has been started
-        self.have_plan = False
-        sent_position = False
-
-        # Create the path publish message
-        p_path = Int32MultiArray()
-        current_waypoint = Vector3()
-        path = None
-
-
         # If you dont have a plan wait for a map, current position, and a goal
         if not self.have_plan:
             # If we have received the data
@@ -99,36 +101,35 @@ class PathPlanner(Node):
                 self.get_logger().info('Planning path')
                 # TODO Update to use a launch parameter instead of static value
                 astar = AStarPlanner(safe_distance=1)
-                path = astar.plan(self.map, self.drone_position, self.goal_position)
-                if path != None:
-                    path = np.array(path)
+                self.path = astar.plan(self.map, self.drone_position, self.goal_position)
+                if self.path is not None:
+                    self.path = np.array(self.path)
                     self.have_plan = True
-                    path[:, 0] = path[:, 0] + self.origin_x
-                    path[:, 1] = path[:, 1] + self.origin_y
-                    self.get_logger().info(f'Executing path: {path}')
+                    self.path[:, 0] = self.path[:, 0] + self.origin_x
+                    self.path[:, 1] = self.path[:, 1] + self.origin_y
+                    self.get_logger().info(f'Executing path: {self.path}')
                 else:
                     self.get_logger().info('Path not found, try another goal')
-                    rospy.loginfo(str(rospy.get_name()) + ": path not found, try another goal")
         else: # We have a plan, execute it
             # Publish the path
-            if len(p_path.data) != len(np.reshape(path,-1)):
-                p_path.data = np.reshape(path,-1)
-                self.path_pub.publish(p_path)
+            if len(self.p_path.data) != len(np.reshape(self.path,-1)):
+                self.p_path.data = np.reshape(self.path,-1)
+                self.path_pub.publish(self.p_path)
 
             # Publish the current waypoint
-            if self.at_waypoint == False or sent_position == False or np.shape(path)[0] < 0:
+            if self.at_waypoint == False or self.sent_position == False or np.shape(self.path)[0] < 0:
                 msg = Vector3()
-                msg.x = path[0][0]
-                msg.y = path[0][1]
-                msg.z = 5
+                msg.x = float(self.path[0][0])
+                msg.y = float(self.path[0][1])
+                msg.z = float(3)
                 self.position_pub.publish(msg)
-                sent_position = True
+                self.sent_position = True
             else:
-                path = path[1:]
-                sent_position = False
+                self.path = self.path[1:]
+                self.sent_position = False
 
             # If we are done wait for next goal
-            if np.shape(path)[0] <= 0 and self.at_waypoint:
+            if np.shape(self.path)[0] <= 0 and self.at_waypoint:
                 self.have_plan = False
                 self.drone_position = copy.deepcopy(self.goal_position)
                 self.goal_position = []
