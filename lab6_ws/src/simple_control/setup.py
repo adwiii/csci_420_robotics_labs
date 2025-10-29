@@ -8,8 +8,9 @@ setup(
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
+         ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('lib/' + package_name, ['simple_control/astar_class.py'])
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +21,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'keyboard_manager = simple_control.keyboard_manager:main',
+            'path_planner = simple_control.path_planner:main',
             'geofence_and_mission = simple_control.geofence_and_mission:main',
         ],
     },
